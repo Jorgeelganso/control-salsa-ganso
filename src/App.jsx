@@ -318,4 +318,425 @@ function Inventario({inventory,setInventory,metrics}) {
   const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
 
   const nextLot = () => {
-    const nums = inventory.map(e=>{const m=e.lot?.match(/L(\d+)$/);return m?parseInt(m[1]
+    const nums = inventory.map(e=>{const m=e.lot?.match(/L(\d+)$/);return m?parseInt(m[1]):0;});
+    return `SG-250-L${String((nums.length?Math.max(...nums):0)+1).padStart(3,"0")}`;
+  };
+
+  const openNew = () => { setForm({date:today(),lot:nextLot(),unitCost:"",quantity:"",notes:""}); setEditId(null); setErr(""); setOk(""); setModal(true); };
+  const openEdit = e => { setForm({...e}); setEditId(e.id); setErr(""); setOk(""); setModal(true); };
+  const delEntry = e => { if(window.confirm("¿Eliminar esta entrada de inventario?")) setInventory(p=>p.filter(x=>x.id!==e.id)); };
+
+  const qty = parseFloat(form.quantity)||0;
+  const cost = parseFloat(form.unitCost)||0;
+  const totalCost = qty*cost;
+
+  const save_ = () => {
+    if(qty<=0) return setErr("La cantidad debe ser mayor a cero.");
+    if(!form.lot?.trim()) return setErr("El lote es obligatorio.");
+    const entry = {id:editId||uid(),date:form.date,lot:form.lot.trim(),quantity:qty,unitCost:cost,totalCost,notes:form.notes};
+    if(editId) setInventory(p=>p.map(x=>x.id===editId?entry:x));
+    else setInventory(p=>[...p,entry]);
+    setOk("Guardado."); setErr(""); setTimeout(()=>{setModal(false);setOk("");},800);
+  };
+
+  const avgCost = inventory.length ? inventory.reduce((s,e)=>s+e.totalCost,0)/inventory.reduce((s,e)=>s+e.quantity,0) : 0;
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <h2 style={{color:"#15803d",margin:0}}>Inventario</h2>
+        <Btn onClick={openNew}>+ Entrada</Btn>
+      </div>
+      <div style={{background:"#fff",borderRadius:12,padding:16,marginBottom:16}}>
+        <div style={{fontWeight:700,color:"#15803d",marginBottom:10}}>Salsa Ganso 250ml · SG-250</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:13}}>
+          {[["Total fabricado",fmtN(metrics.totalFab)+" pzas"],["En almacén",fmtN(metrics.stockAlmacen)+" pzas"],["Entregado",fmtN(metrics.totalDelivered)+" pzas"],["En clientes",fmtN(metrics.stockClientes)+" pzas"],["Vendidas",fmtN(metrics.totalSold)+" pzas"],["Devueltas",fmtN(metrics.totalRetGood)+" pzas"],["Dañadas",fmtN(metrics.totalDamaged)+" pzas"],["Costo promedio",fmt(avgCost)],["Costo total acum.",fmt(inventory.reduce((s,e)=>s+e.totalCost,0))]].map(([l,v])=>(
+            <div key={l}><span style={{color:"#6b7280"}}>{l}: </span><strong>{v}</strong></div>
+          ))}
+        </div>
+      </div>
+      <Tbl
+        cols={["Fecha","Lote","Cant.","Costo U.","Total","Obs.",""]}
+        rows={inventory.map(e=>[e.date,e.lot,fmtN(e.quantity),fmt(e.unitCost),fmt(e.totalCost),e.notes||"—",
+          <div style={{display:"flex",gap:4}}><EditBtn onClick={()=>openEdit(e)}/><DelBtn onClick={()=>delEntry(e)}/></div>
+        ])}
+      />
+      {modal&&(
+        <Modal title={editId?"Editar entrada":"Nueva entrada de inventario"} onClose={()=>setModal(false)}>
+          <Alrt msg={err}/><Alrt msg={ok} type="ok"/>
+          <InfoBox>📦 Producto: <strong>Salsa Ganso 250ml (SG-250)</strong></InfoBox>
+          <Inp label="Fecha" type="date" value={form.date} onChange={f("date")}/>
+          <Inp label="Lote" value={form.lot} onChange={f("lot")}/>
+          <Inp label="Cantidad de piezas *" type="number" min="1" value={form.quantity} onChange={f("quantity")}/>
+          <Inp label="Costo unitario" type="number" min="0" step="0.01" value={form.unitCost} onChange={f("unitCost")}/>
+          <InfoBox>Costo total del lote: <strong>{fmt(totalCost)}</strong></InfoBox>
+          <TA label="Observaciones" value={form.notes} onChange={f("notes")}/>
+          <Btn onClick={save_} full>Guardar</Btn>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── ENTREGAS ────────────────────────────────────────────────────────────────
+function Entregas({clients,deliveries,setDeliveries,metrics}) {
+  const [modal,setModal] = useState(false);
+  const [form,setForm] = useState({});
+  const [editId,setEditId] = useState(null);
+  const [err,setErr] = useState(""); const [ok,setOk] = useState("");
+  const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
+  const activeClients = clients.filter(c=>c.status==="Activo");
+  const cName = id => clients.find(c=>c.id===id)?.businessName||"—";
+
+  const openNew = () => { setForm({date:today(),clientId:"",lot:"",quantityDelivered:"",agreedUnitPrice:"",nextReviewDate:"",notes:""}); setEditId(null); setErr(""); setOk(""); setModal(true); };
+  const openEdit = d => { setForm({...d,quantityDelivered:String(d.quantityDelivered),agreedUnitPrice:String(d.agreedUnitPrice)}); setEditId(d.id); setErr(""); setOk(""); setModal(true); };
+  const delDel = d => { if(window.confirm("¿Eliminar esta entrega?")) setDeliveries(p=>p.filter(x=>x.id!==d.id)); };
+
+  const qty = parseFloat(form.quantityDelivered)||0;
+  const price = parseFloat(form.agreedUnitPrice)||0;
+  const totalPotential = qty*price;
+
+  const save_ = () => {
+    if(!form.clientId) return setErr("Selecciona un cliente.");
+    if(qty<=0) return setErr("La cantidad debe ser mayor a cero.");
+    if(price<0) return setErr("El precio no puede ser negativo.");
+    if(!editId && qty>metrics.stockAlmacen) return setErr(`Stock insuficiente. Disponible: ${fmtN(metrics.stockAlmacen)} pzas.`);
+    const entry = {id:editId||uid(),date:form.date,clientId:form.clientId,lot:form.lot,quantityDelivered:qty,agreedUnitPrice:price,totalPotential,nextReviewDate:form.nextReviewDate,notes:form.notes};
+    if(editId) setDeliveries(p=>p.map(x=>x.id===editId?entry:x));
+    else setDeliveries(p=>[...p,entry]);
+    setOk("Guardado."); setErr(""); setTimeout(()=>{setModal(false);setOk("");},800);
+  };
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <h2 style={{color:"#15803d",margin:0}}>Entregas a Consignación</h2>
+        <Btn onClick={openNew}>+ Nueva</Btn>
+      </div>
+      <InfoBox>📦 Stock en almacén: <strong style={{color:metrics.stockAlmacen>0?"#15803d":"#dc2626"}}>{fmtN(metrics.stockAlmacen)} pzas</strong></InfoBox>
+      <Tbl
+        cols={["Fecha","Cliente","Lote","Pzas","P.U.","Total pot.","Próx. rev.",""]}
+        rows={deliveries.map(d=>[d.date,cName(d.clientId),d.lot,fmtN(d.quantityDelivered),fmt(d.agreedUnitPrice),fmt(d.totalPotential),d.nextReviewDate||"—",
+          <div style={{display:"flex",gap:4}}><EditBtn onClick={()=>openEdit(d)}/><DelBtn onClick={()=>delDel(d)}/></div>
+        ])}
+      />
+      {modal&&(
+        <Modal title={editId?"Editar entrega":"Nueva entrega a consignación"} onClose={()=>setModal(false)}>
+          <Alrt msg={err}/><Alrt msg={ok} type="ok"/>
+          {activeClients.length===0?<Alrt msg="Primero registra un cliente activo."/>:metrics.stockAlmacen<=0&&!editId?<Alrt msg="No hay stock disponible."/>:<>
+            <InfoBox>📦 Producto: <strong>Salsa Ganso 250ml</strong> · Disponible: <strong>{fmtN(metrics.stockAlmacen)} pzas</strong></InfoBox>
+            <Inp label="Fecha" type="date" value={form.date} onChange={f("date")}/>
+            <Sel label="Cliente *" value={form.clientId} onChange={f("clientId")}>
+              <option value="">Selecciona…</option>
+              {activeClients.map(c=><option key={c.id} value={c.id}>{c.businessName}</option>)}
+            </Sel>
+            <Inp label="Lote" value={form.lot} onChange={f("lot")}/>
+            <Inp label="Piezas entregadas *" type="number" min="1" value={form.quantityDelivered} onChange={f("quantityDelivered")}/>
+            <Inp label="Precio unitario acordado" type="number" min="0" step="0.01" value={form.agreedUnitPrice} onChange={f("agreedUnitPrice")}/>
+            <InfoBox>Total potencial: <strong>{fmt(totalPotential)}</strong></InfoBox>
+            <Inp label="Próxima revisión" type="date" value={form.nextReviewDate} onChange={f("nextReviewDate")}/>
+            <TA label="Observaciones" value={form.notes} onChange={f("notes")}/>
+            <Btn onClick={save_} full>Guardar</Btn>
+          </>}
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── REVISIONES ──────────────────────────────────────────────────────────────
+function Revisiones({clients,deliveries,reviews,setReviews,payments,setPayments}) {
+  const [modal,setModal] = useState(false);
+  const [form,setForm] = useState({});
+  const [editId,setEditId] = useState(null);
+  const [err,setErr] = useState(""); const [ok,setOk] = useState("");
+  const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
+  const cName = id => clients.find(c=>c.id===id)?.businessName||"—";
+
+  const clientsWithStock = clients.filter(c=>clientMetrics(c.id,deliveries,reviews,payments).enConsignacion>0);
+
+  const handleClientChange = e => {
+    const id = e.target.value;
+    const lastDel = deliveries.filter(d=>d.clientId===id).slice(-1)[0];
+    setForm(p=>({...p,clientId:id,lot:lastDel?.lot||"",agreedUnitPrice:lastDel?.agreedUnitPrice||""}));
+  };
+
+  const openNew = () => { setForm({date:today(),clientId:"",lot:"",piecesSold:0,piecesReturnedGood:0,piecesDamaged:0,piecesRemaining:0,agreedUnitPrice:"",paymentReceived:0,paymentMethod:"Sin pago",notes:""}); setEditId(null); setErr(""); setOk(""); setModal(true); };
+  const openEdit = r => { setForm({...r}); setEditId(r.id); setErr(""); setOk(""); setModal(true); };
+  const delRev = r => {
+    if(window.confirm("¿Eliminar esta revisión? También se eliminará el abono automático asociado.")) {
+      setReviews(p=>p.filter(x=>x.id!==r.id));
+      setPayments(p=>p.filter(x=>x.sourceReviewId!==r.id));
+    }
+  };
+
+  const cStock = form.clientId ? clientMetrics(form.clientId,deliveries,reviews,payments).enConsignacion : 0;
+  const cStockForEdit = form.clientId&&editId ? (() => {
+    const revsExcl = reviews.filter(r=>r.id!==editId);
+    return clientMetrics(form.clientId,deliveries,revsExcl,payments).enConsignacion;
+  })() : cStock;
+  const stockRef = editId ? cStockForEdit : cStock;
+
+  const sold = parseFloat(form.piecesSold)||0;
+  const retGood = parseFloat(form.piecesReturnedGood)||0;
+  const damaged = parseFloat(form.piecesDamaged)||0;
+  const remaining = parseFloat(form.piecesRemaining)||0;
+  const agreedPrice = parseFloat(form.agreedUnitPrice)||0;
+  const soldAmount = sold*agreedPrice;
+  const paymentReceived = parseFloat(form.paymentReceived)||0;
+  const balanceGenerated = soldAmount - paymentReceived;
+  const sumPieces = sold+retGood+damaged+remaining;
+
+  const save_ = () => {
+    if(!form.clientId) return setErr("Selecciona un cliente.");
+    if(sold<0||retGood<0||damaged<0||remaining<0) return setErr("No se permiten cantidades negativas.");
+    if(sumPieces!==stockRef) return setErr(`La suma de piezas (${sumPieces}) no coincide con el stock del cliente (${stockRef}).`);
+    const rev = {id:editId||uid(),date:form.date,clientId:form.clientId,lot:form.lot,piecesSold:sold,piecesReturnedGood:retGood,piecesDamaged:damaged,piecesRemaining:remaining,agreedUnitPrice:agreedPrice,soldAmount,paymentReceived,balanceGenerated,paymentMethod:form.paymentMethod,notes:form.notes};
+    if(editId) {
+      setReviews(p=>p.map(x=>x.id===editId?rev:x));
+      setPayments(p=>p.filter(x=>x.sourceReviewId!==editId));
+    } else {
+      setReviews(p=>[...p,rev]);
+    }
+    if(paymentReceived>0) {
+      setPayments(p=>[...p,{id:uid(),date:form.date,clientId:form.clientId,amount:paymentReceived,paymentMethod:form.paymentMethod,reference:"Abono en revisión",notes:`Generado desde revisión del ${form.date}`,sourceReviewId:rev.id}]);
+    }
+    setOk("Revisión guardada."); setErr(""); setTimeout(()=>{setModal(false);setOk("");},800);
+  };
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <h2 style={{color:"#15803d",margin:0}}>Revisiones de Consignación</h2>
+        <Btn onClick={openNew}>+ Nueva</Btn>
+      </div>
+      <Tbl
+        cols={["Fecha","Cliente","Lot","Vend.","Dev.","Daño","Importe","Abono",""]}
+        rows={reviews.map(r=>[r.date,cName(r.clientId),r.lot||"—",fmtN(r.piecesSold),fmtN(r.piecesReturnedGood),fmtN(r.piecesDamaged),fmt(r.soldAmount),fmt(r.paymentReceived),
+          <div style={{display:"flex",gap:4}}><EditBtn onClick={()=>openEdit(r)}/><DelBtn onClick={()=>delRev(r)}/></div>
+        ])}
+      />
+      {modal&&(
+        <Modal title={editId?"Editar revisión":"Nueva revisión"} onClose={()=>setModal(false)}>
+          <Alrt msg={err}/><Alrt msg={ok} type="ok"/>
+          {clientsWithStock.length===0&&!editId?<Alrt msg="No hay clientes con piezas en consignación."/>:<>
+            <Inp label="Fecha" type="date" value={form.date} onChange={f("date")}/>
+            <Sel label="Cliente *" value={form.clientId} onChange={handleClientChange}>
+              <option value="">Selecciona…</option>
+              {(editId?clients:clientsWithStock).map(c=><option key={c.id} value={c.id}>{c.businessName}</option>)}
+            </Sel>
+            {form.clientId&&<InfoBox color="#fef3c7">📦 Stock de referencia: <strong>{stockRef} pzas</strong> — la suma debe ser igual.</InfoBox>}
+            <Sel label="Lote relacionado" value={form.lot} onChange={f("lot")}>
+              <option value="">— Sin especificar —</option>
+              {deliveries.filter(d=>d.clientId===form.clientId).map(d=><option key={d.id} value={d.lot}>{d.lot} ({fmtN(d.quantityDelivered)} pzas)</option>)}
+            </Sel>
+            <Inp label="Piezas vendidas" type="number" min="0" value={form.piecesSold} onChange={f("piecesSold")}/>
+            <Inp label="Piezas devueltas (buenas)" type="number" min="0" value={form.piecesReturnedGood} onChange={f("piecesReturnedGood")}/>
+            <Inp label="Piezas dañadas o perdidas" type="number" min="0" value={form.piecesDamaged} onChange={f("piecesDamaged")}/>
+            <Inp label="Piezas que siguen en consignación" type="number" min="0" value={form.piecesRemaining} onChange={f("piecesRemaining")}/>
+            <InfoBox color={sumPieces===stockRef?"#f0fdf4":"#fef2f2"}>
+              Suma actual: <strong>{sumPieces}</strong> / Esperado: <strong>{stockRef}</strong> {sumPieces===stockRef?"✅":"⚠️"}
+            </InfoBox>
+            <Inp label="Precio unitario acordado" type="number" min="0" step="0.01" value={form.agreedUnitPrice} onChange={f("agreedUnitPrice")}/>
+            <InfoBox>Importe vendido: <strong>{fmt(soldAmount)}</strong></InfoBox>
+            <Inp label="Abono recibido en esta revisión" type="number" min="0" step="0.01" value={form.paymentReceived} onChange={f("paymentReceived")}/>
+            <InfoBox color={balanceGenerated>0?"#fef2f2":"#f0fdf4"}>
+              Saldo generado: <strong style={{color:balanceGenerated>0?"#dc2626":"#16a34a"}}>{fmt(balanceGenerated)}</strong>
+            </InfoBox>
+            <Sel label="Método de pago" value={form.paymentMethod} onChange={f("paymentMethod")}>
+              <option>Sin pago</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Otro</option>
+            </Sel>
+            <TA label="Observaciones" value={form.notes} onChange={f("notes")}/>
+            <Btn onClick={save_} full>Guardar revisión</Btn>
+          </>}
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── PAGOS ───────────────────────────────────────────────────────────────────
+function Pagos({clients,deliveries,reviews,payments,setPayments}) {
+  const [modal,setModal] = useState(false);
+  const [form,setForm] = useState({});
+  const [editId,setEditId] = useState(null);
+  const [err,setErr] = useState(""); const [ok,setOk] = useState("");
+  const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
+  const cName = id => clients.find(c=>c.id===id)?.businessName||"—";
+
+  const handleClientChange = e => {
+    const id = e.target.value;
+    setForm(p=>({...p,clientId:id}));
+  };
+
+  const openNew = () => { setForm({date:today(),clientId:"",amount:"",paymentMethod:"Efectivo",reference:"",notes:""}); setEditId(null); setErr(""); setOk(""); setModal(true); };
+  const openEdit = p => { setForm({...p,amount:String(p.amount)}); setEditId(p.id); setErr(""); setOk(""); setModal(true); };
+  const delPay = p => {
+    if(p.sourceReviewId) return alert("Este pago fue generado automáticamente desde una revisión. Elimina la revisión para quitarlo.");
+    if(window.confirm("¿Eliminar este pago?")) setPayments(prev=>prev.filter(x=>x.id!==p.id));
+  };
+
+  const amount = parseFloat(form.amount)||0;
+  const selectedBalance = form.clientId ? clientMetrics(form.clientId,deliveries,reviews,payments).saldo : 0;
+
+  const save_ = () => {
+    if(!form.clientId) return setErr("Selecciona un cliente.");
+    if(amount<=0) return setErr("El monto debe ser mayor a cero.");
+    if(selectedBalance<=0) return setErr("Este cliente no tiene saldo pendiente.");
+    if(amount>selectedBalance&&!window.confirm(`El abono (${fmt(amount)}) supera el saldo (${fmt(selectedBalance)}). ¿Continuar?`)) return;
+    const pay = {id:editId||uid(),date:form.date,clientId:form.clientId,amount,paymentMethod:form.paymentMethod,reference:form.reference,notes:form.notes};
+    if(editId) setPayments(p=>p.map(x=>x.id===editId?pay:x));
+    else setPayments(p=>[...p,pay]);
+    setOk("Pago guardado."); setErr(""); setTimeout(()=>{setModal(false);setOk("");},800);
+  };
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <h2 style={{color:"#15803d",margin:0}}>Pagos y Abonos</h2>
+        <Btn onClick={openNew}>+ Nuevo</Btn>
+      </div>
+
+      {payments.length===0
+        ? <div style={{color:"#9ca3af",textAlign:"center",padding:32}}>Sin pagos registrados.</div>
+        : <Tbl
+            cols={["Fecha","Cliente","Monto","Método","Ref.","Origen",""]}
+            rows={payments.map(p=>[
+              p.date,
+              cName(p.clientId),
+              fmt(p.amount),
+              p.paymentMethod,
+              p.reference||"—",
+              p.sourceReviewId?<span style={{fontSize:11,background:"#dbeafe",color:"#1d4ed8",borderRadius:4,padding:"2px 6px"}}>Revisión</span>:<span style={{fontSize:11,background:"#d1fae5",color:"#15803d",borderRadius:4,padding:"2px 6px"}}>Manual</span>,
+              <div style={{display:"flex",gap:4}}>
+                {!p.sourceReviewId&&<EditBtn onClick={()=>openEdit(p)}/>}
+                <DelBtn onClick={()=>delPay(p)}/>
+              </div>
+            ])}
+          />
+      }
+
+      {modal&&(
+        <Modal title={editId?"Editar pago":"Nuevo pago / abono"} onClose={()=>setModal(false)}>
+          <Alrt msg={err}/><Alrt msg={ok} type="ok"/>
+          <Inp label="Fecha" type="date" value={form.date} onChange={f("date")}/>
+          <Sel label="Cliente *" value={form.clientId} onChange={handleClientChange}>
+            <option value="">Selecciona…</option>
+            {clients.filter(c=>c.status!=="Inactivo").map(c=>{
+              const m = clientMetrics(c.id,deliveries,reviews,payments);
+              return <option key={c.id} value={c.id}>{c.businessName} — saldo: {fmt(m.saldo)}</option>;
+            })}
+          </Sel>
+          {form.clientId&&(
+            <InfoBox color={selectedBalance>0?"#fef2f2":"#f0fdf4"}>
+              Saldo pendiente: <strong style={{color:selectedBalance>0?"#dc2626":"#16a34a"}}>{fmt(selectedBalance)}</strong>
+            </InfoBox>
+          )}
+          <Inp label="Monto abonado *" type="number" min="0.01" step="0.01" value={form.amount} onChange={f("amount")}/>
+          <Sel label="Método de pago" value={form.paymentMethod} onChange={f("paymentMethod")}>
+            <option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Otro</option>
+          </Sel>
+          <Inp label="Referencia" value={form.reference||""} onChange={f("reference")}/>
+          <TA label="Observaciones" value={form.notes||""} onChange={f("notes")}/>
+          <Btn onClick={save_} full>Guardar pago</Btn>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── REPORTES ────────────────────────────────────────────────────────────────
+function Reportes({clients,inventory,deliveries,reviews,payments,metrics}) {
+  const [tab,setTab] = useState("inventario");
+  const [filterClient,setFilterClient] = useState("");
+  const cName = id => clients.find(c=>c.id===id)?.businessName||"—";
+  const tabs = [["inventario","Inventario"],["clientes","Clientes"],["saldos","Saldos"],["entregas","Entregas"],["pagos","Pagos"]];
+
+  const fDels = filterClient?deliveries.filter(d=>d.clientId===filterClient):deliveries;
+  const fPays = filterClient?payments.filter(p=>p.clientId===filterClient):payments;
+  const fClients = filterClient?clients.filter(c=>c.id===filterClient):clients;
+
+  return (
+    <div>
+      <h2 style={{color:"#15803d",marginTop:0}}>Reportes</h2>
+      <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:14}}>
+        {tabs.map(([k,l])=><button key={k} onClick={()=>setTab(k)} style={{whiteSpace:"nowrap",padding:"6px 12px",borderRadius:8,border:"none",background:tab===k?"#15803d":"#d1fae5",color:tab===k?"#fff":"#15803d",fontWeight:600,fontSize:12,cursor:"pointer"}}>{l}</button>)}
+      </div>
+
+      {["entregas","pagos","clientes"].includes(tab)&&(
+        <Sel label="Filtrar por cliente" value={filterClient} onChange={e=>setFilterClient(e.target.value)}>
+          <option value="">— Todos —</option>
+          {clients.map(c=><option key={c.id} value={c.id}>{c.businessName}</option>)}
+        </Sel>
+      )}
+
+      {tab==="inventario"&&(
+        <div style={{background:"#fff",borderRadius:12,padding:16}}>
+          {[["Total fabricado",fmtN(metrics.totalFab)+" pzas"],["En almacén",fmtN(metrics.stockAlmacen)+" pzas"],["Entregado consignación",fmtN(metrics.totalDelivered)+" pzas"],["En poder de clientes",fmtN(metrics.stockClientes)+" pzas"],["Vendidas",fmtN(metrics.totalSold)+" pzas"],["Devueltas buenas",fmtN(metrics.totalRetGood)+" pzas"],["Dañadas/perdidas",fmtN(metrics.totalDamaged)+" pzas"]].map(([l,v])=>(
+            <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid #f3f4f6",fontSize:14}}>
+              <span style={{color:"#6b7280"}}>{l}</span><strong>{v}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab==="clientes"&&(
+        <Tbl cols={["Cliente","Est.","Entregadas","Vendidas","Dev.","Daño","Consig.","Vendido","Abonado","Saldo","CxC","Últ.rev."]}
+          rows={fClients.map(c=>{
+            const m=clientMetrics(c.id,deliveries,reviews,payments);
+            return [c.businessName,c.status,fmtN(m.piezasEntregadas),fmtN(m.piezasVendidas),fmtN(m.piezasDevueltas),fmtN(m.piezasDañadas),fmtN(m.enConsignacion),fmt(m.totalVendido),fmt(m.totalAbonado),<span style={{color:m.saldo>0?"#dc2626":"#16a34a",fontWeight:700}}>{fmt(m.saldo)}</span>,fmt(m.cxcPotencial),m.ultimaRevision||"—"];
+          })}
+        />
+      )}
+
+      {tab==="saldos"&&(
+        <Tbl cols={["Cliente","WhatsApp","Saldo","CxC pot.","Consig.","Últ.rev.","Próx.rev."]}
+          rows={clients.filter(c=>{const m=clientMetrics(c.id,deliveries,reviews,payments);return m.saldo>0;}).map(c=>{
+            const m=clientMetrics(c.id,deliveries,reviews,payments);
+            return [c.businessName,c.whatsapp||"—",<span style={{color:"#dc2626",fontWeight:700}}>{fmt(m.saldo)}</span>,fmt(m.cxcPotencial),fmtN(m.enConsignacion),m.ultimaRevision||"—",m.proximaRevision||"—"];
+          })}
+        />
+      )}
+
+      {tab==="entregas"&&(
+        <Tbl cols={["Fecha","Cliente","Lote","Pzas","P.U.","Total pot.","Próx.rev."]}
+          rows={fDels.map(d=>[d.date,cName(d.clientId),d.lot,fmtN(d.quantityDelivered),fmt(d.agreedUnitPrice),fmt(d.totalPotential),d.nextReviewDate||"—"])}
+        />
+      )}
+
+      {tab==="pagos"&&(
+        <Tbl cols={["Fecha","Cliente","Monto","Método","Ref.","Origen"]}
+          rows={fPays.map(p=>[p.date,cName(p.clientId),fmt(p.amount),p.paymentMethod,p.reference||"—",p.sourceReviewId?"Revisión":"Manual"])}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── HISTORIAL ───────────────────────────────────────────────────────────────
+function Historial({clients,deliveries,reviews,payments}) {
+  const [clientId,setClientId] = useState("");
+  const client = clients.find(c=>c.id===clientId);
+  const m = clientId ? clientMetrics(clientId,deliveries,reviews,payments) : null;
+  const cDels = clientId?deliveries.filter(d=>d.clientId===clientId):[];
+  const cRevs = clientId?reviews.filter(r=>r.clientId===clientId):[];
+  const cPays = clientId?payments.filter(p=>p.clientId===clientId):[];
+
+  const timeline = [
+    ...cDels.map(d=>({date:d.date,type:"entrega",data:d})),
+    ...cRevs.map(r=>({date:r.date,type:"revision",data:r})),
+    ...cPays.filter(p=>!p.sourceReviewId).map(p=>({date:p.date,type:"pago",data:p})),
+  ].sort((a,b)=>a.date.localeCompare(b.date));
+
+  const copyResumen = () => {
+    if(!client||!m) return;
+    const txt = `Hola ${client.businessName}, te compartimos el resumen de consignación de Salsa Ganso 250ml:\n\n- Piezas entregadas: ${fmtN(m.piezasEntregadas)}\n- Piezas vendidas: ${fmtN(m.piezasVendidas)}\n- Piezas devueltas: ${fmtN(m.piezasDevueltas)}\n- Piezas dañadas: ${fmtN(m.piezasDañadas)}\n- Piezas en consignación: ${fmtN(m.enConsignacion)}\n- Total vendido: ${fmt(m.totalVendido)}\n- Total abonado: ${fmt(m.totalAbonado)}\n- Saldo pendiente: ${fmt(m.saldo)}\n- Valor en calle (CxC): ${fmt(m.cxcPotencial)}\n- Próxima revisión: ${m.proximaRevision||"—"}\n\nGracias.`;
+    navigator.clipboard.writeText(txt).then(()=>alert("Copiado al portapapeles ✅"));
+  };
+
+  const colors = {entrega:"#7c3aed",revision:"#2563eb",pago:"#16a34a"};
+  const labels = {entrega:"🚚 Entrega",revision:"🔍 Revisión",pago:"💳 Pago"};
+
+  return (
+    <div>
+      <h2 style={{color:"#15803d",marginTop:0}}>Hi
