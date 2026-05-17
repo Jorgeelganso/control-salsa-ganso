@@ -739,4 +739,53 @@ function Historial({clients,deliveries,reviews,payments}) {
 
   return (
     <div>
-      <h2 style={{color:"#15803d",marginTop:0}}>Hi
+      <h2 style={{color:"#15803d",marginTop:0}}>Historial por Cliente</h2>
+      <Sel label="Selecciona un cliente" value={clientId} onChange={e=>setClientId(e.target.value)}>
+        <option value="">— Selecciona —</option>
+        {clients.map(c=><option key={c.id} value={c.id}>{c.businessName}</option>)}
+      </Sel>
+
+      {client&&m&&(<>
+        <div style={{background:"#fff",borderRadius:12,padding:16,marginBottom:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:16}}>{client.businessName}</div>
+              <div style={{fontSize:12,color:"#6b7280"}}>{client.responsibleName} · {client.whatsapp}</div>
+              <div style={{fontSize:12,color:"#6b7280"}}>{client.email}</div>
+              <div style={{fontSize:12,color:"#6b7280"}}>{client.address}</div>
+            </div>
+            <span style={{background:client.status==="Activo"?"#d1fae5":"#fef3c7",color:client.status==="Activo"?"#15803d":"#92400e",borderRadius:6,padding:"2px 10px",fontSize:12,fontWeight:700}}>{client.status}</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:14,fontSize:13}}>
+            {[["Pzas entregadas",fmtN(m.piezasEntregadas)],["En consignación",fmtN(m.enConsignacion)],["Pzas vendidas",fmtN(m.piezasVendidas)],["Pzas devueltas",fmtN(m.piezasDevueltas)],["Pzas dañadas",fmtN(m.piezasDañadas)],["Total vendido",fmt(m.totalVendido)],["Total abonado",fmt(m.totalAbonado)],["Saldo pendiente",fmt(m.saldo)],["CxC potencial",fmt(m.cxcPotencial)]].map(([l,v])=>(
+              <div key={l}><span style={{color:"#6b7280"}}>{l}: </span><strong>{v}</strong></div>
+            ))}
+          </div>
+          <div style={{marginTop:14}}>
+            <Btn onClick={copyResumen}>📋 Copiar resumen para cliente</Btn>
+          </div>
+        </div>
+
+        <h3 style={{color:"#15803d"}}>Línea de tiempo</h3>
+        {timeline.length===0?<div style={{color:"#9ca3af",textAlign:"center",padding:24}}>Sin movimientos.</div>:timeline.map((ev,i)=>(
+          <div key={i} style={{display:"flex",gap:10,marginBottom:8}}>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
+              <div style={{width:10,height:10,borderRadius:"50%",background:colors[ev.type],marginTop:5,flexShrink:0}}/>
+              {i<timeline.length-1&&<div style={{width:2,flex:1,background:"#e5e7eb",marginTop:2}}/>}
+            </div>
+            <div style={{background:"#fff",borderRadius:10,padding:"10px 14px",flex:1,boxShadow:"0 1px 3px #0001",marginBottom:2}}>
+              <div style={{display:"flex",justifyContent:"space-between"}}>
+                <span style={{fontWeight:700,fontSize:12,color:colors[ev.type]}}>{labels[ev.type]}</span>
+                <span style={{fontSize:11,color:"#9ca3af"}}>{ev.date}</span>
+              </div>
+              {ev.type==="entrega"&&<div style={{fontSize:12,marginTop:3}}>Lote: {ev.data.lot} · {fmtN(ev.data.quantityDelivered)} pzas · {fmt(ev.data.agreedUnitPrice)}/pza · Total pot.: {fmt(ev.data.totalPotential)}</div>}
+              {ev.type==="revision"&&<div style={{fontSize:12,marginTop:3}}>Vendidas: {ev.data.piecesSold} · Dev.: {ev.data.piecesReturnedGood} · Daño: {ev.data.piecesDamaged} · Importe: {fmt(ev.data.soldAmount)} · Abono: {fmt(ev.data.paymentReceived)}</div>}
+              {ev.type==="pago"&&<div style={{fontSize:12,marginTop:3}}>Monto: {fmt(ev.data.amount)} · {ev.data.paymentMethod}{ev.data.reference?` · Ref: ${ev.data.reference}`:""}</div>}
+              {ev.data.notes&&<div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>{ev.data.notes}</div>}
+            </div>
+          </div>
+        ))}
+      </>)}
+    </div>
+  );
+}
