@@ -1,40 +1,4 @@
-import { useState, useEffect } from "react";
-
-// ─── STORAGE ─────────────────────────────────────────────────────────────────
-const KEYS = { clients:"sg_clients2", inventory:"sg_inventory2", deliveries:"sg_deliveries2", reviews:"sg_reviews2", payments:"sg_payments2" };
-const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
-const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-
-// ─── UTILS ───────────────────────────────────────────────────────────────────
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
-const today = () => new Date().toISOString().slice(0,10);
-const fmt = n => `$${Number(n||0).toLocaleString("es-MX",{minimumFractionDigits:2})}`;
-const fmtN = n => Number(n||0).toLocaleString("es-MX");
-
-// ─── CALC ENGINE ─────────────────────────────────────────────────────────────
-function calcMetrics(inventory, deliveries, reviews, payments) {
-  const totalFab = inventory.reduce((s,e)=>s+e.quantity,0);
-  const totalDelivered = deliveries.reduce((s,d)=>s+d.quantityDelivered,0);
-  const totalSold = reviews.reduce((s,r)=>s+r.piecesSold,0);
-  const totalRetGood = reviews.reduce((s,r)=>s+r.piecesReturnedGood,0);
-  const totalDamaged = reviews.reduce((s,r)=>s+r.piecesDamaged,0);
-  const stockAlmacen = totalFab - totalDelivered + totalRetGood;
-  const stockClientes = totalDelivered - totalSold - totalRetGood - totalDamaged;
-  const importeVendido = reviews.reduce((s,r)=>s+r.soldAmount,0);
-  const totalAbonado = payments.reduce((s,p)=>s+p.amount,0);
-  const saldoPendiente = importeVendido - totalAbonado;
-  const cxcPotencial = deliveries.reduce((s,d)=>{
-    const revD = reviews.filter(r=>r.clientId===d.clientId&&r.lot===d.lot);
-    const v = revD.reduce((a,r)=>a+r.piecesSold,0);
-    const dev = revD.reduce((a,r)=>a+r.piecesReturnedGood,0);
-    const dan = revD.reduce((a,r)=>a+r.piecesDamaged,0);
-    const enCalle = d.quantityDelivered - v - dev - dan;
-    return s + (enCalle>0 ? enCalle*d.agreedUnitPrice : 0);
-  },0);
-  return { totalFab, totalDelivered, totalSold, totalRetGood, totalDamaged, stockAlmacen, stockClientes, importeVendido, totalAbonado, saldoPendiente, cxcPotencial };
-}
-
-function clientMetrics(clientId, deliveries, reviews, payments) {
+import { useState, useEffect } from "react";function clientMetrics(clientId, deliveries, reviews, payments) {
   const dels = deliveries.filter(d=>d.clientId===clientId);
   const revs = reviews.filter(r=>r.clientId===clientId);
   const pays = payments.filter(p=>p.clientId===clientId);
